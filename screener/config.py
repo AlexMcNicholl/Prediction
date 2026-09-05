@@ -66,6 +66,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
     db_override = os.environ.get("SCREENER_DB_PATH")
     if db_override:
         data.setdefault("storage", {})["db_path"] = db_override
+    # Lets CI inject the published Pages URL without editing config.yaml.
+    url_override = os.environ.get("SCREENER_DASHBOARD_URL")
+    if url_override:
+        data.setdefault("report", {})["dashboard_url"] = url_override
     return Config(data, resolved)
 
 

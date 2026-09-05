@@ -166,6 +166,10 @@ models:
     manual_probabilities: {}     # e.g. {KXFED-26SEP-C25: 0.82}
 
 report:
+  # Public URL of the published dashboard, if you enable GitHub Pages. When
+  # set, the digest links to it - which is what makes the digest useful on a
+  # phone. Format: https://<user>.github.io/<repo>/
+  dashboard_url: null
   output_dir: "out"
   dashboard_filename: "dashboard.html"
   top_n_digest: 10

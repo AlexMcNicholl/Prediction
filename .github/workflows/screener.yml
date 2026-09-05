@@ -11,12 +11,15 @@ name: Screener
 # from config.yaml.
 on:
   schedule:
-    # Times are UTC (cron has no timezone), shown below in ET during EDT.
-    # In November ET shifts to EST and these land an hour earlier locally.
-    # Deliberately off the hour: :00 is the most congested slot on Actions and
-    # scheduled runs there are routinely delayed.
-    - cron: "17 11,15,19,23 * * *"  # 07:17, 11:17, 15:17, 19:17 ET
-    - cron: "47 12 * * *"           # 08:47 ET - just after the 08:30 data releases
+    # Hourly through ET waking hours. This repo is public, so Actions minutes
+    # are unlimited and cost no longer sets the cadence - but Kalshi's public
+    # API is a shared resource, so we skip the overnight dead zone rather than
+    # poll around the clock for contracts that are not moving.
+    # Times are UTC (cron has no timezone); in November ET shifts to EST and
+    # these land an hour earlier locally. Off the hour on purpose: :00 is the
+    # most congested slot on Actions and runs there are routinely delayed.
+    - cron: "17 11-23 * * *"  # 07:17 - 19:17 ET
+    - cron: "17 0-3 * * *"    # 20:17 - 23:17 ET
   workflow_dispatch:
     inputs:
       skip_notify:
@@ -101,6 +104,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
           QUOTE_API_KEY: ${{ secrets.QUOTE_API_KEY }}
+          # So the digest links to the published dashboard. Optional: set the
+          # repository variable DASHBOARD_URL once Pages is live.
+          SCREENER_DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
         run: |
           ARGS=""
           if [ "${{ inputs.skip_notify }}" = "true" ]; then ARGS="$ARGS --no-notify"; fi
@@ -130,6 +136,11 @@ jobs:
             python -m screener.cli info >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           fi
 
+      # Pages serves the site root, so the dashboard needs to be index.html.
+      - name: Prepare the Pages site
+        if: vars.PUBLISH_PAGES == 'true'
+        run: cp out/dashboard.html out/index.html
+
       - name: Upload Pages artifact
         if: vars.PUBLISH_PAGES == 'true'
         uses: actions/upload-pages-artifact@v3
@@ -152,3 +163,8 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Link the dashboard
+        run: |
+          echo "📊 **Dashboard:** ${{ steps.deployment.outputs.page_url }}" \
+            >> "$GITHUB_STEP_SUMMARY"

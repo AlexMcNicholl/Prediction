@@ -180,7 +180,9 @@ def _render_outputs(
     )
 
     subject, body = build_digest(
-        rows, stats, top_n=int(config.get("report.top_n_digest", 10))
+        rows, stats,
+        top_n=int(config.get("report.top_n_digest", 10)),
+        dashboard_url=config.get("report.dashboard_url", None),
     )
     digest_path = out_dir / "digest.txt"
     digest_path.write_text(body, encoding="utf-8")

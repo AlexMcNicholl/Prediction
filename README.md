@@ -208,24 +208,23 @@ given a mean and standard deviation.
 
 ## Scheduling (GitHub Actions)
 
-`.github/workflows/screener.yml` runs five times a day, timed around US data
-releases rather than spread evenly — CPI and payrolls land at 08:30 ET, Fed
-decisions at 14:00 ET, and weather contracts resolve same-day:
+`.github/workflows/screener.yml` runs **hourly through ET waking hours**:
 
 ```yaml
-- cron: "17 11,15,19,23 * * *"  # 07:17, 11:17, 15:17, 19:17 ET
-- cron: "47 12 * * *"           # 08:47 ET, just after the 08:30 releases
+- cron: "17 11-23 * * *"  # 07:17 – 19:17 ET
+- cron: "17 0-3 * * *"    # 20:17 – 23:17 ET
 ```
 
 Cron is UTC-only, so these shift an hour in local terms when EDT ends. The odd
-minutes are deliberate: `:00` is the most congested slot on Actions and scheduled
-runs there are routinely delayed. GitHub's floor is one run per 5 minutes, but on a
-private repo **Actions minutes** bind long before that — roughly 4 min/run means
-~600 min/month at this cadence, against a 2,000-minute free tier. Hourly would
-exceed it.
+minute is deliberate: `:00` is the most congested slot on Actions and scheduled
+runs there are routinely delayed.
 
-Change the cadence by editing `cron:` — GitHub only reads the schedule from the
-workflow file, never from `config.yaml`.
+This repo is public, so **Actions minutes are unlimited** and cost does not set the
+cadence. GitHub's floor is one run per 5 minutes if you ever want it. What is left
+as a real constraint is politeness: Kalshi's public API is a shared resource, which
+is why the overnight dead zone is skipped rather than polled for contracts that are
+not moving. Change the cadence by editing `cron:` — GitHub only reads the schedule
+from the workflow file, never from `config.yaml`.
 
 ### Where the results go
 
@@ -243,16 +242,25 @@ The cache is what makes snapshot history accumulate; the artifact is the durable
 copy to download if a cache is ever evicted. Because nothing is pushed, the
 workflow needs only `contents: read`.
 
-**On a phone, the digest is the real delivery path** — a private repo can't serve
-the dashboard as a rendered page (GitHub shows HTML blobs as source, and Pages for
-private repos needs a paid plan), so viewing the full dashboard means downloading
-the artifact. Set up Telegram or email if you want something glanceable.
+### Publishing the dashboard (recommended)
+
+Because the repo is public, GitHub Pages is available on the free plan — this is
+the best phone experience, a stable URL that always shows the latest run:
+
+1. **Settings → Pages → Source: GitHub Actions**
+2. **Settings → Secrets and variables → Actions → Variables**, add
+   `PUBLISH_PAGES` = `true`
+3. After the first run, add `DASHBOARD_URL` = the published URL
+   (`https://<user>.github.io/<repo>/`) so the digest links to it
+
+The workflow copies `dashboard.html` to `index.html` so the site root serves it,
+and prints the URL in the run summary.
+
+Without Pages, the digest is the phone path and the full dashboard means
+downloading the run artifact.
 
 Optional secrets (`Settings → Secrets and variables → Actions`): `SMTP_USERNAME`,
 `SMTP_PASSWORD`, `TELEGRAM_BOT_TOKEN`.
-
-If you make the repo public, or move to a paid plan, set the repository variable
-`PUBLISH_PAGES=true` and enable Pages with source "GitHub Actions" for a stable URL.
 
 ### Rate limiting
 

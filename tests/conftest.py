@@ -191,7 +191,17 @@ class FakeKalshiClient:
 
         class _Stats:
             requests = 0
+            retries = 0
+            errors = 0
+            pages = 0
+            rate_limited = 0
         self.stats = _Stats()
+
+        # Mirrors the real client's limiter so the ingest summary can report it.
+        class _Limiter:
+            current_rps = float("inf")
+            throttle_events = 0
+        self._limiter = _Limiter()
 
     def get_exchange_status(self) -> dict:
         self.calls.append("status")

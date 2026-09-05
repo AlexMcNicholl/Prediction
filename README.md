@@ -208,16 +208,63 @@ given a mean and standard deviation.
 
 ## Scheduling (GitHub Actions)
 
-`.github/workflows/screener.yml` runs the pipeline three times daily, commits the
-SQLite DB and dashboard back to the repo, uploads them as artifacts, and sends the
-digest. Change the cadence by editing the `cron:` line — GitHub only reads the schedule
-from the workflow file.
+`.github/workflows/screener.yml` runs five times a day, timed around US data
+releases rather than spread evenly — CPI and payrolls land at 08:30 ET, Fed
+decisions at 14:00 ET, and weather contracts resolve same-day:
+
+```yaml
+- cron: "17 11,15,19,23 * * *"  # 07:17, 11:17, 15:17, 19:17 ET
+- cron: "47 12 * * *"           # 08:47 ET, just after the 08:30 releases
+```
+
+Cron is UTC-only, so these shift an hour in local terms when EDT ends. The odd
+minutes are deliberate: `:00` is the most congested slot on Actions and scheduled
+runs there are routinely delayed. GitHub's floor is one run per 5 minutes, but on a
+private repo **Actions minutes** bind long before that — roughly 4 min/run means
+~600 min/month at this cadence, against a 2,000-minute free tier. Hourly would
+exceed it.
+
+Change the cadence by editing `cron:` — GitHub only reads the schedule from the
+workflow file, never from `config.yaml`.
+
+### Where the results go
+
+The workflow **does not commit anything back**. Git stores every version of a
+binary file in full, so committing a growing SQLite DB several times a day would
+bloat the repo permanently. Instead:
+
+| Output | Mechanism | Lifetime |
+|---|---|---|
+| `data/screener.db` | `actions/cache`, rolling key | carried run to run |
+| DB + dashboard + digest + CSVs | run artifact | 90 days |
+| Digest | email / Telegram | immediate |
+
+The cache is what makes snapshot history accumulate; the artifact is the durable
+copy to download if a cache is ever evicted. Because nothing is pushed, the
+workflow needs only `contents: read`.
+
+**On a phone, the digest is the real delivery path** — a private repo can't serve
+the dashboard as a rendered page (GitHub shows HTML blobs as source, and Pages for
+private repos needs a paid plan), so viewing the full dashboard means downloading
+the artifact. Set up Telegram or email if you want something glanceable.
 
 Optional secrets (`Settings → Secrets and variables → Actions`): `SMTP_USERNAME`,
 `SMTP_PASSWORD`, `TELEGRAM_BOT_TOKEN`.
 
-To publish the dashboard to GitHub Pages for a stable phone URL, set the repository
-variable `PUBLISH_PAGES=true` and enable Pages with source "GitHub Actions".
+If you make the repo public, or move to a paid plan, set the repository variable
+`PUBLISH_PAGES=true` and enable Pages with source "GitHub Actions" for a stable URL.
+
+### Rate limiting
+
+Kalshi 429s unauthenticated readers well below 8 req/s — the first live run hit
+sustained 429s at that rate. The client now starts at `api.requests_per_second: 4.0`
+and **halves its own rate every time it is throttled**, down to
+`floor_requests_per_second`, holding the slower rate for the rest of the run.
+
+Because throttling makes runs longer, enrichment is bounded by both a count
+(`max_enriched_markets`) and a wall clock (`enrichment_budget_seconds`). Whichever
+is reached first wins, and the run still produces a dashboard from the market
+snapshot. A partial enrichment beats a job timeout that produces nothing.
 
 `.github/workflows/tests.yml` runs the suite on every push. The tests are fully
 offline — they run against fixtures and never contact Kalshi.
@@ -275,6 +322,13 @@ no non-`GET` verbs, no Wealthsimple host in any string literal).
   once you have settled history.
 - **Annualised returns are capped for display** (`signals.max_annualized_display`);
   a contract closing in hours produces an arithmetically true but meaningless figure.
+- **Enrichment may be partial.** Under heavy rate limiting the wall-clock budget
+  stops it early, so orderbook/candle/trade depth can be thinner than the market
+  count suggests. The run log says how many markets were skipped.
+- **The DB lives in an Actions cache.** Caches are evicted under a 10 GB repo quota
+  or after 7 days unused. Runs keep it warm, and every run also uploads the DB as a
+  90-day artifact, but a long pause plus an eviction would lose snapshot history.
+  Download an artifact periodically if that history matters to you.
 
 ## Licence / disclaimer
 

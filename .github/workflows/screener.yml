@@ -1,14 +1,22 @@
 name: Screener
 
 # Recurring run: ingest fresh Kalshi data, recompute signals, regenerate the
-# dashboard, commit the results back, and send the digest.
+# dashboard, and send the digest.
 #
-# Cadence lives here (GitHub only reads cron from the workflow file). Keep it
-# in step with the note in config.yaml if you change it.
+# Nothing is committed back. The SQLite database rides a rolling actions/cache
+# between runs and is also uploaded as an artifact; committing a growing binary
+# several times a day would bloat the repo permanently.
+#
+# Cadence lives here - GitHub reads cron only from the workflow file, never
+# from config.yaml.
 on:
   schedule:
-    # 07:00, 13:00 and 21:00 UTC -> 03:00, 09:00 and 17:00 America/Toronto (EDT).
-    - cron: "0 7,13,21 * * *"
+    # Times are UTC (cron has no timezone), shown below in ET during EDT.
+    # In November ET shifts to EST and these land an hour earlier locally.
+    # Deliberately off the hour: :00 is the most congested slot on Actions and
+    # scheduled runs there are routinely delayed.
+    - cron: "17 11,15,19,23 * * *"  # 07:17, 11:17, 15:17, 19:17 ET
+    - cron: "47 12 * * *"           # 08:47 ET - just after the 08:30 data releases
   workflow_dispatch:
     inputs:
       skip_notify:
@@ -25,8 +33,10 @@ concurrency:
   group: screener-${{ github.ref }}
   cancel-in-progress: false
 
+# Read-only: results leave as artifacts and the digest, so nothing is
+# committed back and no write token is needed.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   run:
@@ -34,9 +44,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Full history so the data commit can be pushed cleanly.
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -44,22 +51,48 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
+      # Snapshot history is the point of this system, so the DB must survive
+      # between runs - but committing a growing binary to git would bloat the
+      # repo permanently (git stores every version of a binary in full).
+      # A rolling cache carries it forward; the artifact below is the durable
+      # copy you can download if a cache is ever evicted.
+      - name: Restore the screener database
+        uses: actions/cache@v4
+        with:
+          path: data/screener.db
+          key: screener-db-${{ github.run_id }}
+          restore-keys: |
+            screener-db-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # continue-on-error keeps a failed verification from blocking ingestion,
+      # but it also makes the step show a GREEN CHECK in the UI even when it
+      # failed. The next step exists so the real outcome is impossible to
+      # misread: it always runs and always states the result.
       - name: Verify the live Kalshi API
         id: verify
         continue-on-error: true
         run: python -m screener.cli verify-api
 
-      - name: Note API drift
-        if: steps.verify.outcome == 'failure'
+      - name: Report API verification result
+        if: always()
         run: |
-          echo "::warning title=Kalshi API drift::verify-api reported failures. \
-          Field names or endpoints may have changed - check the log above. \
-          Ingestion will still run; unmapped fields degrade to NULL."
+          if [ "${{ steps.verify.outcome }}" = "success" ]; then
+            echo "✅ **API verification passed** — endpoints, field names, \
+          pagination and the cents assumption all match." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ **API verification FAILED** (outcome: \
+          ${{ steps.verify.outcome }}) — see the 'Verify the live Kalshi API' \
+          step log. Either the API changed, or requests were rate-limited. \
+          Ingestion continues; unmapped fields degrade to NULL." \
+            >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Kalshi API verification failed::verify-api \
+          reported failures. Check whether this is drift or rate limiting."
+          fi
 
       - name: Run the screener
         env:
@@ -77,31 +110,24 @@ jobs:
       - name: Export CSVs for external analysis
         run: python -m screener.cli export --format csv
 
-      - name: Upload dashboard and data
+      - name: Upload dashboard, digest and database
         uses: actions/upload-artifact@v4
         with:
           name: screener-output
           path: |
             out/
             exports/
-          retention-days: 30
+            data/screener.db
+          retention-days: 90
 
-      - name: Commit the database and dashboard
+      - name: Report database size
+        if: always()
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # -f because data/ artefacts are gitignored for local development.
-          git add -f data/screener.db out/dashboard.html out/digest.txt
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "data: screener run $(date -u +'%Y-%m-%dT%H:%MZ')"
-            # Another scheduled run may have pushed while we worked.
-            for i in 1 2 3 4; do
-              git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && \
-              git push origin "HEAD:${GITHUB_REF_NAME}" && break
-              echo "push failed, retrying in $((2 ** i))s"; sleep $((2 ** i))
-            done
+          if [ -f data/screener.db ]; then
+            echo "### Screener run" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Database: $(du -h data/screener.db | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+            python -m screener.cli info >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           fi
 
       - name: Upload Pages artifact

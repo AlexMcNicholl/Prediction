@@ -37,10 +37,20 @@ class KalshiAPIError(RuntimeError):
 
 
 class RateLimiter:
-    """Simple token-free throttle: enforce a minimum gap between requests."""
+    """Adaptive throttle: enforce a minimum gap, and back off on 429s.
 
-    def __init__(self, requests_per_second: float) -> None:
-        self.min_interval = 1.0 / requests_per_second if requests_per_second > 0 else 0.0
+    A fixed rate is a guess, and guessing high gets you rate-limited: the first
+    live run of this screener hit repeated 429s at 8 req/s unauthenticated. So
+    the limiter halves its own rate every time the server pushes back, down to
+    ``floor_rps``, and holds that slower rate for the rest of the run rather
+    than immediately creeping back up and getting throttled again.
+    """
+
+    def __init__(self, requests_per_second: float, floor_rps: float = 0.5) -> None:
+        self.base_interval = 1.0 / requests_per_second if requests_per_second > 0 else 0.0
+        self.max_interval = 1.0 / floor_rps if floor_rps > 0 else 0.0
+        self.min_interval = self.base_interval
+        self.throttle_events = 0
         self._last: float = 0.0
 
     def wait(self) -> None:
@@ -51,6 +61,19 @@ class RateLimiter:
             time.sleep(self.min_interval - elapsed)
         self._last = time.monotonic()
 
+    def penalize(self) -> bool:
+        """Halve the request rate after a 429. True if the rate actually changed."""
+        if self.base_interval <= 0:
+            return False
+        previous = self.min_interval
+        self.min_interval = min(self.min_interval * 2.0, self.max_interval)
+        self.throttle_events += 1
+        return self.min_interval > previous
+
+    @property
+    def current_rps(self) -> float:
+        return 1.0 / self.min_interval if self.min_interval > 0 else float("inf")
+
 
 @dataclass
 class ClientStats:
@@ -58,6 +81,7 @@ class ClientStats:
     retries: int = 0
     errors: int = 0
     pages: int = 0
+    rate_limited: int = 0
 
 
 @dataclass
@@ -70,7 +94,9 @@ class KalshiClient:
     max_retries: int = 5
     backoff_base: float = 1.0
     backoff_max: float = 60.0
-    requests_per_second: float = 8.0
+    # Kalshi 429s unauthenticated readers well below 8 req/s (observed live).
+    requests_per_second: float = 4.0
+    floor_requests_per_second: float = 0.5
     page_limit: int = 200
     user_agent: str = "prediction-screener/1.0 (read-only market-data research)"
     session: requests.Session = field(default_factory=requests.Session)
@@ -79,7 +105,9 @@ class KalshiClient:
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
         self.fallback_base_urls = tuple(u.rstrip("/") for u in self.fallback_base_urls)
-        self._limiter = RateLimiter(self.requests_per_second)
+        self._limiter = RateLimiter(
+            self.requests_per_second, self.floor_requests_per_second
+        )
         self.session.headers.update(
             {"User-Agent": self.user_agent, "Accept": "application/json"}
         )
@@ -131,6 +159,13 @@ class KalshiClient:
                         resp.status_code,
                     )
                     self.stats.errors += 1
+                    if resp.status_code == 429:
+                        self.stats.rate_limited += 1
+                    if resp.status_code == 429 and self._limiter.penalize():
+                        log.warning(
+                            "rate limited; slowing to %.1f req/s for the rest of "
+                            "this run", self._limiter.current_rps,
+                        )
                     if attempt >= self.max_retries:
                         break
                     retry_after = self._retry_after_seconds(resp)

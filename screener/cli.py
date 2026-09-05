@@ -336,8 +336,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("verify-api", parents=[common],
                        help="confirm the live Kalshi API contract")
-    p.add_argument("--retries", type=int, default=0,
-                   help="retry budget per check (default 0: diagnostics fail fast)")
+    # Not 0: a single 429 would then fail a check outright, which is exactly
+    # what happened on the first live run. Connection errors still fail in
+    # milliseconds, so a small budget stays fast against an unreachable host
+    # while surviving rate limiting.
+    p.add_argument("--retries", type=int, default=2,
+                   help="retry budget per check (default 2: survives a 429, "
+                        "still fails fast when the host is unreachable)")
     p.add_argument("--timeout", type=float, default=15.0,
                    help="per-request timeout in seconds (default 15)")
     p.add_argument("--no-fallback", action="store_true",

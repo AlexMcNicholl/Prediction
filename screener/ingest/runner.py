@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,7 +55,8 @@ def build_client(config: Config) -> KalshiClient:
         max_retries=int(api.get("max_retries", 5)),
         backoff_base=float(api.get("backoff_base_seconds", 1.0)),
         backoff_max=float(api.get("backoff_max_seconds", 60.0)),
-        requests_per_second=float(api.get("requests_per_second", 8.0)),
+        requests_per_second=float(api.get("requests_per_second", 4.0)),
+        floor_requests_per_second=float(api.get("floor_requests_per_second", 0.5)),
         page_limit=int(api.get("page_limit", 200)),
         user_agent=api.get("user_agent", "prediction-screener/1.0"),
     )
@@ -162,9 +164,11 @@ def ingest(
 
     result.api_requests = client.stats.requests
     log.info(
-        "ingest complete: %d markets, %d tradeable, %d API requests, %d errors",
+        "ingest complete: %d markets, %d tradeable, %d API requests, %d errors, "
+        "%d rate-limit responses (final rate %.1f req/s)",
         result.markets_seen, result.markets_tradeable,
         result.api_requests, len(result.errors),
+        client.stats.rate_limited, client._limiter.current_rps,
     )
     return result
 
@@ -181,12 +185,32 @@ def _enrich(
     """Fetch orderbooks / candles / trades for the shortlist.
 
     Every call is individually non-fatal: one bad market must not lose the run.
+
+    Enrichment is also bounded by wall clock. It is the expensive phase (three
+    calls per market), and when the API rate-limits us the client slows itself
+    down - so an unbounded loop can outlast the CI job timeout and produce
+    nothing at all. A partial enrichment plus a dashboard beats a timeout.
     """
     want_books = ingest_cfg.get("fetch_orderbooks", True)
     want_candles = ingest_cfg.get("fetch_candles", True)
     want_trades = ingest_cfg.get("fetch_trades", True)
+    budget = float(ingest_cfg.get("enrichment_budget_seconds", 420))
+    started = time.monotonic()
 
-    for ticker in tickers:
+    for index, ticker in enumerate(tickers):
+        if budget > 0 and time.monotonic() - started > budget:
+            skipped = len(tickers) - index
+            log.warning(
+                "enrichment budget of %.0fs spent after %d markets; skipping the "
+                "remaining %d. Signals still compute from the market snapshot; "
+                "raise ingest.enrichment_budget_seconds or lower "
+                "ingest.max_enriched_markets.",
+                budget, index, skipped,
+            )
+            result.errors.append(
+                f"enrichment budget exhausted, {skipped} markets not enriched"
+            )
+            break
         market = market_index.get(ticker, {})
 
         if want_books:

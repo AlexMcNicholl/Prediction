@@ -16,9 +16,13 @@ api:
   max_retries: 5
   backoff_base_seconds: 1.0
   backoff_max_seconds: 60.0
-  # Client-side throttle. Kalshi uses tiered token buckets; unauthenticated
-  # reads are modest, so stay well under any plausible ceiling.
-  requests_per_second: 8.0
+  # Client-side throttle. Kalshi uses tiered token buckets and 429s
+  # unauthenticated readers well below 8 req/s - the first live run hit
+  # repeated 429s at that rate. The client also HALVES this rate each time it
+  # is rate-limited, down to floor_requests_per_second, and holds the slower
+  # rate for the rest of the run.
+  requests_per_second: 4.0
+  floor_requests_per_second: 0.5
   page_limit: 200          # /markets max page size
   user_agent: "prediction-screener/1.0 (read-only market-data research)"
 
@@ -33,7 +37,11 @@ ingest:
   candles_lookback_hours: 336     # 14 days
   trades_limit: 100
   # Cap enrichment calls per run so a run cannot blow past the Actions budget.
-  max_enriched_markets: 250
+  # Each market costs three requests, and the client slows itself down when
+  # rate-limited, so both a count cap and a wall-clock budget apply - whichever
+  # is reached first wins. A partial enrichment still produces a dashboard.
+  max_enriched_markets: 150
+  enrichment_budget_seconds: 420
   store_raw_json: true
 
 predict:

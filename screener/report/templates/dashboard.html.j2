@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ title }}</title>
+<style>
+  :root{
+    --bg:#f7f7f5; --surface:#fff; --surface-2:#f0f0ee; --border:#e0e0dc;
+    --text:#1a1a18; --muted:#6b6b66; --accent:#3b5bdb; --accent-soft:#e7ecfd;
+    --pos:#1f7a4d; --pos-soft:#e3f3ea; --neg:#a8322a; --neg-soft:#fbeae8;
+    --warn:#8a6100; --warn-soft:#fdf3dd; --radius:10px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#151513; --surface:#1e1e1c; --surface-2:#262624; --border:#35352f;
+      --text:#eeeee8; --muted:#a0a099; --accent:#8fa6f5; --accent-soft:#25304f;
+      --pos:#5cc98d; --pos-soft:#1c3328; --neg:#f08a80; --neg-soft:#3a201d;
+      --warn:#e0b352; --warn-soft:#372c14;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px 14px 64px}
+  h1{font-size:20px;margin:0 0 2px;letter-spacing:-.01em}
+  h2{font-size:15px;margin:26px 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  a{color:var(--accent)}
+
+  .banner{background:var(--warn-soft);border:1px solid var(--border);border-left:3px solid var(--warn);
+    border-radius:var(--radius);padding:11px 13px;margin:0 0 16px;font-size:13px}
+  .banner strong{color:var(--warn)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin-bottom:18px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
+  .stat .v{font-size:19px;font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+  .controls{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px;margin-bottom:14px;display:grid;gap:10px;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .controls label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.05em;margin-bottom:4px}
+  .controls input,.controls select{width:100%;padding:8px 9px;border:1px solid var(--border);
+    border-radius:7px;background:var(--surface-2);color:var(--text);font-size:14px;font-family:inherit}
+  .controls input[type=range]{padding:0}
+  .ctl-full{grid-column:1/-1}
+  .rowbtns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button{font:inherit;padding:7px 12px;border:1px solid var(--border);border-radius:7px;
+    background:var(--surface-2);color:var(--text);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    margin-bottom:9px;overflow:hidden}
+  .card-head{padding:12px 13px;cursor:pointer;display:grid;
+    grid-template-columns:auto 1fr auto;gap:11px;align-items:start}
+  .card-head:hover{background:var(--surface-2)}
+  .rank{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;padding-top:3px;min-width:22px}
+  .ttl{font-weight:600;font-size:14px;line-height:1.35}
+  .tkr{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);
+    margin-top:2px;word-break:break-all}
+  .score{text-align:right;font-variant-numeric:tabular-nums}
+  .score .n{font-size:17px;font-weight:660;letter-spacing:-.02em}
+  .score .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+
+  .metrics{display:flex;flex-wrap:wrap;gap:5px;padding:0 13px 11px;grid-column:1/-1}
+  .m{font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:999px;padding:2.5px 9px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .m b{font-weight:620}
+  .m.pos{background:var(--pos-soft);color:var(--pos);border-color:transparent}
+  .m.neg{background:var(--neg-soft);color:var(--neg);border-color:transparent}
+  .m.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .m.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+  .detail{display:none;border-top:1px solid var(--border);padding:13px;background:var(--surface-2);
+    font-size:13px}
+  .card.open .detail{display:block}
+  .detail h4{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .detail section{margin-bottom:15px}
+  .detail section:last-child{margin-bottom:0}
+  .rules{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 11px;
+    white-space:pre-wrap;word-wrap:break-word;font-size:12.5px;line-height:1.55;max-height:280px;overflow:auto}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12.5px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;font-variant-numeric:tabular-nums}
+  .bars{display:grid;gap:5px;margin-top:4px}
+  .bar{display:grid;grid-template-columns:78px 1fr 42px;gap:9px;align-items:center;font-size:11.5px}
+  .bar .track{height:7px;background:var(--surface);border:1px solid var(--border);border-radius:99px;overflow:hidden}
+  .bar .fill{height:100%;background:var(--accent);border-radius:99px}
+  .bar .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .spark{margin-top:6px}
+  .nomodel{color:var(--muted);font-style:italic}
+
+  .empty{text-align:center;color:var(--muted);padding:34px 14px;background:var(--surface);
+    border:1px dashed var(--border);border-radius:var(--radius)}
+  footer{margin-top:30px;padding-top:14px;border-top:1px solid var(--border);
+    color:var(--muted);font-size:12px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+    background:var(--surface-2);padding:1px 4px;border-radius:4px}
+  @media (max-width:560px){
+    .wrap{padding:12px 10px 56px}
+    .card-head{grid-template-columns:auto 1fr;gap:9px}
+    .score{grid-column:2;text-align:left;display:flex;gap:7px;align-items:baseline;margin-top:3px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>{{ title }}</h1>
+  <p class="sub">Generated {{ generated_at }} · data as of run #{{ run_id }}</p>
+
+  <div class="banner">
+    <strong>Candidates for manual analysis — not recommendations.</strong>
+    Nothing here is a signal to trade. In a prediction market, profit potential and
+    risk are the same variable: a contract at $0.20 pays 5× precisely because the market
+    thinks it probably won't happen. The only edge is disagreeing with the price for a
+    defensible reason. Read each contract's <em>full settlement rules and close time</em>
+    before acting, and execute manually in the Wealthsimple Predict app.
+    Contracts settle in <strong>USD</strong>.
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v">{{ stats.total_markets }}</div><div class="k">Markets seen</div></div>
+    <div class="stat"><div class="v">{{ stats.tradeable }}</div><div class="k">On Predict ≤{{ stats.term_days }}d</div></div>
+    <div class="stat"><div class="v">{{ stats.with_model }}</div><div class="k">Have a model</div></div>
+    <div class="stat"><div class="v">{{ stats.edge_flagged }}</div><div class="k">Edge flagged</div></div>
+    <div class="stat"><div class="v">{{ stats.bankroll }}</div><div class="k">Bankroll (USD)</div></div>
+  </div>
+
+  {% if charts.score_hist %}
+  <h2>Score distribution</h2>
+  {{ charts.score_hist }}
+  {% endif %}
+  {% if charts.edge_hist %}
+  <h2>Edge distribution (model − market)</h2>
+  {{ charts.edge_hist }}
+  {% endif %}
+
+  <h2>Candidates ({{ candidates|length }})</h2>
+
+  <div class="controls">
+    <div class="ctl-full">
+      <label for="q">Search title / ticker / series</label>
+      <input id="q" type="search" placeholder="e.g. CPI, KXHIGH, unemployment" autocomplete="off">
+    </div>
+    <div>
+      <label for="cat">Category</label>
+      <select id="cat"><option value="">All</option>
+        {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="sort">Sort by</label>
+      <select id="sort">
+        <option value="score">Composite score</option>
+        <option value="edge">|Edge|</option>
+        <option value="ev">EV per contract</option>
+        <option value="ann">Annualized if win</option>
+        <option value="days">Days to close</option>
+        <option value="spread">Tightest spread</option>
+        <option value="vol">Volume</option>
+      </select>
+    </div>
+    <div>
+      <label for="minscore">Min score: <span id="minscoreV">0.00</span></label>
+      <input id="minscore" type="range" min="0" max="1" step="0.05" value="0">
+    </div>
+    <div>
+      <label for="maxdays">Max days to close: <span id="maxdaysV">{{ stats.term_days }}</span></label>
+      <input id="maxdays" type="range" min="1" max="{{ stats.term_days }}" step="1" value="{{ stats.term_days }}">
+    </div>
+    <div class="ctl-full rowbtns">
+      <button id="fModel" type="button">Has model only</button>
+      <button id="fEdge" type="button">Edge flagged only</button>
+      <button id="fLiquid" type="button">Hide thin books</button>
+      <button id="reset" type="button">Reset</button>
+      <span id="count" style="color:var(--muted);font-size:12px"></span>
+    </div>
+  </div>
+
+  <div id="list">
+  {% for c in candidates %}
+    <article class="card" data-score="{{ c.score or 0 }}" data-edge="{{ c.abs_edge }}"
+             data-ev="{{ c.ev_per_contract or -99 }}" data-ann="{{ c.annualized_if_win or -99 }}"
+             data-days="{{ c.days_to_close or 9999 }}" data-spread="{{ c.spread_cents if c.spread_cents is not none else 99 }}"
+             data-vol="{{ c.volume or 0 }}" data-cat="{{ c.category or '' }}"
+             data-model="{{ 1 if c.model_prob is not none else 0 }}"
+             data-edgeflag="{{ c.edge_flag or 0 }}" data-thin="{{ c.liquidity_flag or 0 }}"
+             data-text="{{ (c.title ~ ' ' ~ (c.subtitle or '') ~ ' ' ~ c.ticker ~ ' ' ~ (c.series_ticker or ''))|lower }}">
+      <div class="card-head">
+        <div class="rank">{{ loop.index }}</div>
+        <div>
+          <div class="ttl">{{ c.title }}{% if c.subtitle %} — {{ c.subtitle }}{% endif %}</div>
+          <div class="tkr">{{ c.ticker }}</div>
+        </div>
+        <div class="score">
+          <div class="n">{{ '%.2f'|format(c.score or 0) }}</div>
+          <div class="l">score</div>
+        </div>
+        <div class="metrics">
+          <span class="m acc">Market <b>{{ c.implied_pct }}</b></span>
+          {% if c.model_prob is not none %}
+            <span class="m">Model <b>{{ c.model_pct }}</b></span>
+            <span class="m {{ 'pos' if c.edge and c.edge > 0 else 'neg' }}">Edge <b>{{ c.edge_pct }}</b></span>
+          {% else %}
+            <span class="m">no model — edge unknown</span>
+          {% endif %}
+          {% if c.side %}<span class="m">Side <b>{{ c.side|upper }}</b> @ {{ c.entry_display }}</span>{% endif %}
+          {% if c.ev_per_contract is not none %}
+            <span class="m {{ 'pos' if c.ev_per_contract > 0 else 'neg' }}">EV <b>{{ c.ev_display }}</b>/ct</span>
+          {% endif %}
+          <span class="m">Closes <b>{{ c.days_display }}</b></span>
+          {% if c.spread_cents is not none %}
+            <span class="m {{ 'warn' if c.spread_flag else '' }}">Spread <b>{{ c.spread_cents }}¢</b></span>
+          {% endif %}
+          {% if c.liquidity_flag %}<span class="m warn">thin book</span>{% endif %}
+          {% if c.longshot_flag %}<span class="m warn">tail price</span>{% endif %}
+          {% if c.momentum_flag %}<span class="m warn">moved {{ c.momentum_display }}</span>{% endif %}
+          {% if c.stale_flag %}<span class="m warn">stale {{ c.stale_display }}</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="detail">
+        <section>
+          <h4>Settlement — read this before trading</h4>
+          <div class="rules">{{ c.rules_display }}</div>
+          <dl class="kv" style="margin-top:9px">
+            <dt>Closes</dt><dd>{{ c.close_display }}</dd>
+            <dt>Resolution source</dt><dd>{{ c.settlement_source or 'not stated in the API payload — check the Predict app' }}</dd>
+            {% if c.strike_display %}<dt>Strike</dt><dd>{{ c.strike_display }}</dd>{% endif %}
+            <dt>Settles in</dt><dd>USD</dd>
+            <dt>Status</dt><dd>{{ c.status or '—' }}</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h4>Score components (weighted, transparent)</h4>
+          <div class="bars">
+            {% for name, value, weight in c.component_bars %}
+            <div class="bar">
+              <span>{{ name }} <span style="color:var(--muted)">×{{ weight }}</span></span>
+              <span class="track"><span class="fill" style="width:{{ (value * 100)|round(1) }}%"></span></span>
+              <span class="n">{{ '%.2f'|format(value) }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% if c.model_prob is none %}
+          <p class="nomodel" style="margin:8px 0 0">
+            No fair-value model covers this contract, so the edge and expected-return
+            components are zero by construction. It ranks on structure alone.
+          </p>
+          {% endif %}
+        </section>
+
+        <section>
+          <h4>Pricing &amp; sizing</h4>
+          <dl class="kv">
+            <dt>Yes bid / ask</dt><dd>{{ c.yes_bid if c.yes_bid is not none else '—' }}¢ / {{ c.yes_ask if c.yes_ask is not none else '—' }}¢</dd>
+            <dt>No bid / ask</dt><dd>{{ c.no_bid if c.no_bid is not none else '—' }}¢ / {{ c.no_ask if c.no_ask is not none else '—' }}¢</dd>
+            <dt>Volume / OI</dt><dd>{{ c.volume or 0 }} / {{ c.open_interest or 0 }}</dd>
+            <dt>Fee per contract</dt><dd>{{ c.fee_display }}</dd>
+            {% if c.ev_per_contract is not none %}
+            <dt>EV per contract</dt><dd>{{ c.ev_display }} ({{ c.ev_pct_display }} of cost)</dd>
+            <dt>Annualized (EV-weighted)</dt><dd>{{ c.exp_ann_display }}</dd>
+            {% endif %}
+            <dt>Annualized if it wins</dt><dd>{{ c.ann_display }}</dd>
+            {% if c.kelly_fraction_full is not none %}
+            <dt>Full Kelly</dt><dd>{{ c.kelly_full_display }} of bankroll</dd>
+            <dt>{{ c.kelly_setting_display }} Kelly, capped</dt><dd>{{ c.kelly_used_display }} → {{ c.stake_display }} ≈ {{ c.contracts or 0 }} contracts</dd>
+            {% endif %}
+          </dl>
+        </section>
+
+        {% if c.model_prob is not none %}
+        <section>
+          <h4>Model provenance</h4>
+          <dl class="kv">
+            <dt>Model</dt><dd>{{ c.model_name }}</dd>
+            <dt>Estimate</dt><dd>{{ c.model_pct }}</dd>
+            <dt>Confidence</dt><dd>{{ c.confidence_display }}</dd>
+          </dl>
+          {% if c.notes %}<p style="margin:7px 0 0;color:var(--muted)">{{ c.notes }}</p>{% endif %}
+        </section>
+        {% endif %}
+
+        {% if c.sparkline %}
+        <section>
+          <h4>Implied probability, recent history</h4>
+          <div class="spark">{{ c.sparkline }}</div>
+        </section>
+        {% endif %}
+      </div>
+    </article>
+  {% else %}
+    <div class="empty">
+      No contracts passed the Predict availability filter in this run.<br>
+      Check the allowlist in <code>config.yaml</code> under <code>predict.series_prefix_allowlist</code>.
+    </div>
+  {% endfor %}
+  </div>
+
+  <div class="empty" id="noresults" style="display:none">Nothing matches these filters.</div>
+
+  <footer>
+    <p><strong>Read-only analysis.</strong> This system never places, routes, or automates trades,
+    and never connects to Wealthsimple. All execution is manual, by you, in the Predict app.</p>
+    <p>Run #{{ run_id }} · {{ stats.total_markets }} markets ingested ·
+       {{ stats.tradeable }} passed the {{ stats.term_days }}-day Predict filter ·
+       fees assumed at {{ stats.fee_note }}.</p>
+    <p>Prices are Kalshi cents (62 ⇒ 62% implied). Edge uses the bid/ask midpoint;
+       EV, Kelly and returns use the ask you would actually pay, plus fees.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var list = document.getElementById('list');
+  var q = document.getElementById('q'), cat = document.getElementById('cat');
+  var sort = document.getElementById('sort'), minscore = document.getElementById('minscore');
+  var maxdays = document.getElementById('maxdays'), count = document.getElementById('count');
+  var noresults = document.getElementById('noresults');
+  var toggles = {model:false, edge:false, liquid:false};
+
+  cards.forEach(function(card){
+    card.querySelector('.card-head').addEventListener('click', function(){
+      card.classList.toggle('open');
+    });
+  });
+
+  function num(card, key){ var v = parseFloat(card.dataset[key]); return isNaN(v) ? -99 : v; }
+
+  function apply(){
+    var term = q.value.trim().toLowerCase();
+    var category = cat.value;
+    var minS = parseFloat(minscore.value);
+    var maxD = parseFloat(maxdays.value);
+    document.getElementById('minscoreV').textContent = minS.toFixed(2);
+    document.getElementById('maxdaysV').textContent = maxD;
+
+    var shown = 0;
+    cards.forEach(function(card){
+      var ok = true;
+      if (term && card.dataset.text.indexOf(term) === -1) ok = false;
+      if (ok && category && card.dataset.cat !== category) ok = false;
+      if (ok && num(card,'score') < minS) ok = false;
+      if (ok && num(card,'days') > maxD) ok = false;
+      if (ok && toggles.model && card.dataset.model !== '1') ok = false;
+      if (ok && toggles.edge && card.dataset.edgeflag !== '1') ok = false;
+      if (ok && toggles.liquid && card.dataset.thin === '1') ok = false;
+      card.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+
+    var key = sort.value;
+    var asc = (key === 'days' || key === 'spread');
+    var map = {score:'score', edge:'edge', ev:'ev', ann:'ann', days:'days', spread:'spread', vol:'vol'};
+    var prop = map[key] || 'score';
+    var sorted = cards.slice().sort(function(a,b){
+      var d = num(a,prop) - num(b,prop);
+      return asc ? d : -d;
+    });
+    sorted.forEach(function(card){ list.appendChild(card); });
+
+    count.textContent = shown + ' of ' + cards.length + ' shown';
+    noresults.style.display = shown ? 'none' : '';
+  }
+
+  [q, cat, sort, minscore, maxdays].forEach(function(el){
+    el.addEventListener('input', apply);
+    el.addEventListener('change', apply);
+  });
+
+  function bindToggle(id, key){
+    var btn = document.getElementById(id);
+    btn.addEventListener('click', function(){
+      toggles[key] = !toggles[key];
+      btn.classList.toggle('on', toggles[key]);
+      apply();
+    });
+  }
+  bindToggle('fModel','model'); bindToggle('fEdge','edge'); bindToggle('fLiquid','liquid');
+
+  document.getElementById('reset').addEventListener('click', function(){
+    q.value=''; cat.value=''; sort.value='score'; minscore.value=0; maxdays.value={{ stats.term_days }};
+    toggles={model:false,edge:false,liquid:false};
+    ['fModel','fEdge','fLiquid'].forEach(function(i){document.getElementById(i).classList.remove('on');});
+    apply();
+  });
+
+  apply();
+})();
+</script>
+</body>
+</html>

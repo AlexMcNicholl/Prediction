@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Local data artifacts. The Actions workflow force-adds the DB and dashboard
+# (`git add -f`) so scheduled runs can commit them back; locally they stay out.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/raw/
+out/
+exports/

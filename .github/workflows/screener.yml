@@ -1,0 +1,128 @@
+name: Screener
+
+# Recurring run: ingest fresh Kalshi data, recompute signals, regenerate the
+# dashboard, commit the results back, and send the digest.
+#
+# Cadence lives here (GitHub only reads cron from the workflow file). Keep it
+# in step with the note in config.yaml if you change it.
+on:
+  schedule:
+    # 07:00, 13:00 and 21:00 UTC -> 03:00, 09:00 and 17:00 America/Toronto (EDT).
+    - cron: "0 7,13,21 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_notify:
+        description: "Build the digest but do not send it"
+        type: boolean
+        default: false
+      max_pages:
+        description: "Cap market pages (leave blank for all)"
+        type: string
+        default: ""
+
+# Never let two runs write the SQLite file at once.
+concurrency:
+  group: screener-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the data commit can be pushed cleanly.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify the live Kalshi API
+        id: verify
+        continue-on-error: true
+        run: python -m screener.cli verify-api
+
+      - name: Note API drift
+        if: steps.verify.outcome == 'failure'
+        run: |
+          echo "::warning title=Kalshi API drift::verify-api reported failures. \
+          Field names or endpoints may have changed - check the log above. \
+          Ingestion will still run; unmapped fields degrade to NULL."
+
+      - name: Run the screener
+        env:
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
+          QUOTE_API_KEY: ${{ secrets.QUOTE_API_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.skip_notify }}" = "true" ]; then ARGS="$ARGS --no-notify"; fi
+          if [ -n "${{ inputs.max_pages }}" ]; then ARGS="$ARGS --max-pages ${{ inputs.max_pages }}"; fi
+          python -m screener.cli run $ARGS
+
+      - name: Export CSVs for external analysis
+        run: python -m screener.cli export --format csv
+
+      - name: Upload dashboard and data
+        uses: actions/upload-artifact@v4
+        with:
+          name: screener-output
+          path: |
+            out/
+            exports/
+          retention-days: 30
+
+      - name: Commit the database and dashboard
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # -f because data/ artefacts are gitignored for local development.
+          git add -f data/screener.db out/dashboard.html out/digest.txt
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "data: screener run $(date -u +'%Y-%m-%dT%H:%MZ')"
+            # Another scheduled run may have pushed while we worked.
+            for i in 1 2 3 4; do
+              git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && \
+              git push origin "HEAD:${GITHUB_REF_NAME}" && break
+              echo "push failed, retrying in $((2 ** i))s"; sleep $((2 ** i))
+            done
+          fi
+
+      - name: Upload Pages artifact
+        if: vars.PUBLISH_PAGES == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/
+
+  # Optional: publish the dashboard to GitHub Pages so it has a stable phone URL.
+  # Enable by setting the repository variable PUBLISH_PAGES=true and turning on
+  # Pages (Settings -> Pages -> Source: GitHub Actions).
+  deploy-pages:
+    needs: run
+    if: vars.PUBLISH_PAGES == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

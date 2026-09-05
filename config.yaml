@@ -1,0 +1,186 @@
+# ============================================================================
+# Prediction-market screener configuration.
+#
+# This system is READ-ONLY analysis. It never places, routes, or automates
+# trades, and it never touches Wealthsimple. Everything it produces is a
+# CANDIDATE FOR MANUAL ANALYSIS, not a recommendation.
+# ============================================================================
+
+api:
+  # Verified 2026-09: public market-data endpoints require no authentication.
+  # Run `python -m screener.cli verify-api` to re-confirm against the live API.
+  base_url: "https://api.elections.kalshi.com/trade-api/v2"
+  fallback_base_urls:
+    - "https://trading-api.kalshi.com/trade-api/v2"
+  timeout_seconds: 30
+  max_retries: 5
+  backoff_base_seconds: 1.0
+  backoff_max_seconds: 60.0
+  # Client-side throttle. Kalshi uses tiered token buckets; unauthenticated
+  # reads are modest, so stay well under any plausible ceiling.
+  requests_per_second: 8.0
+  page_limit: 200          # /markets max page size
+  user_agent: "prediction-screener/1.0 (read-only market-data research)"
+
+ingest:
+  # Depth of optional per-market enrichment. These are N extra HTTP calls each,
+  # so they run only for markets that survive the Predict filter.
+  fetch_orderbooks: true
+  fetch_candles: true
+  fetch_trades: true
+  orderbook_depth: 10
+  candles_period_minutes: 60
+  candles_lookback_hours: 336     # 14 days
+  trades_limit: 100
+  # Cap enrichment calls per run so a run cannot blow past the Actions budget.
+  max_enriched_markets: 250
+  store_raw_json: true
+
+predict:
+  # ------------------------------------------------------------------------
+  # Wealthsimple Predict availability allowlist.
+  #
+  # There is NO official Kalshi -> Predict mapping. This list is hand-curated
+  # by browsing the Predict app. See README "Curating the Predict allowlist".
+  # Matching is: series_ticker in series_allowlist  OR  any prefix in
+  # series_prefix_allowlist matches  OR  category in category_allowlist.
+  # Anything in the denylist is excluded regardless.
+  # ------------------------------------------------------------------------
+  term_to_maturity_days: 30      # Canadian 30-day rule
+  require_open_status: true
+
+  category_allowlist:
+    - "Economics"
+    - "Financials"
+    - "Climate and Weather"
+
+  series_prefix_allowlist:
+    # --- Economic indicators ---
+    - "KXCPI"        # CPI year-over-year
+    - "KXCPICORE"    # Core CPI
+    - "KXPCE"        # PCE inflation
+    - "KXU3"         # Unemployment rate
+    - "KXPAYROLLS"   # Nonfarm payrolls
+    - "KXGDP"        # GDP growth
+    - "KXRECSSNBER"  # Recession
+    # --- Rates ---
+    - "KXFED"        # Fed decision / target rate
+    - "KXFEDDECISION"
+    - "KXBOC"        # Bank of Canada
+    # --- Financial markets ---
+    - "KXNASDAQ100"
+    - "KXINX"        # S&P 500
+    - "KXDJIA"
+    - "KXBTC"        # Bitcoin
+    - "KXETH"
+    - "KXGOLD"
+    - "KXOIL"
+    - "KXTSX"
+    # --- Climate / weather ---
+    - "KXHIGH"       # Daily high temperature
+    - "KXLOW"        # Daily low temperature
+    - "KXRAIN"
+    - "KXSNOW"
+    - "KXTEMP"
+    - "KXHURRICANE"
+    - "KXGLOBALTEMP"
+
+  series_allowlist: []          # exact series tickers, added by hand
+
+  series_denylist:
+    # Categories Predict is not authorized to offer in Canada.
+    - "KXPRES"
+    - "KXELECTION"
+    - "KXSENATE"
+    - "KXHOUSE"
+
+signals:
+  # All thresholds are flags for attention, never buy/sell triggers.
+  edge_threshold: 0.05           # |model_prob - implied| to flag
+  spread_threshold_cents: 3      # yes_ask - yes_bid
+  min_volume: 100
+  min_open_interest: 100
+  min_liquidity_dollars: 500
+  longshot_low: 0.10             # favorite-longshot bias band
+  longshot_high: 0.90
+  staleness_hours: 24            # no trade / no price move in N hours
+  momentum_lookback_hours: 24
+  momentum_threshold: 0.05       # absolute implied-prob move to flag
+  max_annualized_display: 100.0  # cap absurd annualized figures (10,000%)
+
+  # Transparent composite score. Every component is stored alongside the total
+  # so the score is never a black box. Weights need not sum to 1.
+  score_weights:
+    edge: 0.40
+    liquidity: 0.20
+    spread: 0.15
+    annualized: 0.15
+    momentum: 0.10
+
+fees:
+  # Kalshi taker fee: ceil(coefficient * C * P * (1-P)) rounded up to the cent.
+  # Verify against https://kalshi.com/docs/kalshi-fee-schedule.pdf - fees change.
+  taker_coefficient: 0.07
+  maker_coefficient: 0.0175      # ~25% of taker
+  per_contract_cap_dollars: null # e.g. 0.035 if a cap applies to your series
+  settlement_fee_per_contract: 0.0
+  assume_taker: true             # manual app execution is effectively taker
+
+sizing:
+  bankroll: 1000.0               # USD - contracts settle in USD
+  kelly_fraction: 0.25           # fractional Kelly
+  max_stake_fraction: 0.05       # hard cap per contract, fraction of bankroll
+
+models:
+  enabled:
+    - cpi
+    - weather
+    - equity
+  cpi:
+    # Cleveland Fed inflation nowcast - free, no API key.
+    nowcast_url: "https://www.clevelandfed.org/indicators-and-data/inflation-nowcasting"
+    manual_override: null        # e.g. {cpi_yoy: 2.9, asof: "2026-09-01"}
+    sigma: 0.15                  # nowcast std-dev in pp, for the normal CDF
+  weather:
+    provider: "nws"              # "nws" (free, no key) | "manual" | "none"
+    nws_base_url: "https://api.weather.gov"
+    climatology_weight: 0.30     # blend weight on climatology vs forecast
+    forecast_sigma_f: 3.0        # forecast error std-dev, degrees F
+  equity:
+    # Lognormal from spot + implied vol. No paid data source is wired in;
+    # supply spot/IV manually or point `quote_url` at a free source you trust.
+    quote_url: null
+    manual_quotes: {}            # e.g. {NASDAQ100: {spot: 20150, iv: 0.18}}
+    default_iv: 0.20
+    risk_free_rate: 0.04
+  rates:
+    # Stubbed: no free OIS/rate-futures source is wired in. Supply manually.
+    manual_probabilities: {}     # e.g. {KXFED-26SEP-C25: 0.82}
+
+report:
+  output_dir: "out"
+  dashboard_filename: "dashboard.html"
+  top_n_digest: 10
+  max_table_rows: 400
+  timezone: "America/Toronto"
+  sparkline_points: 48
+
+notifications:
+  enabled: false
+  channels: []                   # "email" and/or "telegram"
+  email:
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    from_address: ""
+    to_addresses: []
+  telegram:
+    chat_id: ""
+
+storage:
+  db_path: "data/screener.db"
+  raw_dir: "data/raw"
+  export_dir: "exports"
+  retain_raw_days: 30
+
+logging:
+  level: "INFO"
